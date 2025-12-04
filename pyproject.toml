@@ -1,10 +1,90 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
 [project]
 name = "fuzzytail"
-version = "0.1.0"
-description = "Add your description here"
+description = "Follow COPR build logs in your terminal"
 readme = "README.md"
-requires-python = ">=3.14"
+dynamic = ["version"]
+requires-python = ">=3.10"
 dependencies = [
-    "httpx>=0.28.1",
+    "cyclopts>=4.3.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
     "rich>=14.2.0",
+]
+authors = [
+    { name = "Rodolfo Olivieri", email = "rodolfo.olivieri3@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+
+[project.url]
+"Source code" = "https://github.com/r0x0d/fuzzytail"
+"Bug Tracker" = "https://github.com/r0x0d/fuzzytail/issues"
+
+[project.scripts]
+fuzzytail = "fuzzytail.__main__:main"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["fuzzytail"]
+
+[tool.hatch.version]
+source = "vcs"
+
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
+    "ruff>=0.14.7",
+]
+
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests with mocking",
+    "functional: Functional tests without mocking (requires network)",
+]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["fuzzytail"]
+branch = true
+omit = [
+    "fuzzytail/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
 ]
