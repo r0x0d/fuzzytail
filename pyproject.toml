@@ -12,7 +12,9 @@ dependencies = [
     "cyclopts>=4.3.0",
     "httpx>=0.28.0",
     "pydantic>=2.10.0",
+    "pyperclip>=1.9.0",
     "rich>=14.2.0",
+    "textual>=3.0.0",
 ]
 authors = [
     { name = "Rodolfo Olivieri", email = "rodolfo.olivieri3@gmail.com"}
