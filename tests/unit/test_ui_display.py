@@ -216,3 +216,291 @@ class TestListBuilds:
 
         # Should still print table (with no rows)
         console.print.assert_called_once()
+
+
+class TestStreamBuild:
+    """Tests for LogDisplay.stream_build method."""
+
+    @pytest.mark.unit
+    def test_stream_build_basic(
+        self, mocker: MockerFixture, sample_build: Build
+    ) -> None:
+        """Test stream_build method with a completed build."""
+        from fuzzytail.ui.display import LogDisplay
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        # Mock the dependencies
+        mock_streamer_class = mocker.patch("fuzzytail.ui.display.LogStreamer")
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        mock_streamer = mocker.MagicMock()
+        mock_streamer.get_new_content.return_value = None
+        mock_streamer.is_log_complete.return_value = True
+        mock_streamer.__enter__ = mocker.MagicMock(return_value=mock_streamer)
+        mock_streamer.__exit__ = mocker.MagicMock(return_value=None)
+        mock_streamer_class.return_value = mock_streamer
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_build.return_value = sample_build
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        display.stream_build(sample_build)
+
+        # Should print build panel and completion message
+        assert mock_console.print.called
+
+    @pytest.mark.unit
+    def test_stream_build_discovers_new_logs(
+        self, mocker: MockerFixture, sample_build: Build
+    ) -> None:
+        """Test stream_build discovers and streams new logs."""
+        from fuzzytail.ui.display import LogDisplay
+        from fuzzytail.services.logs import LogChunk
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        mock_streamer_class = mocker.patch("fuzzytail.ui.display.LogStreamer")
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        call_count = [0]
+
+        def mock_get_new_content(log):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return LogChunk(log=log, content="log content")
+            return None
+
+        mock_streamer = mocker.MagicMock()
+        mock_streamer.get_new_content.side_effect = mock_get_new_content
+        mock_streamer.is_log_complete.return_value = True
+        mock_streamer.__enter__ = mocker.MagicMock(return_value=mock_streamer)
+        mock_streamer.__exit__ = mocker.MagicMock(return_value=None)
+        mock_streamer_class.return_value = mock_streamer
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_build.return_value = sample_build
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        display.stream_build(sample_build)
+
+        assert mock_console.print.called
+
+
+class TestWatchProject:
+    """Tests for LogDisplay.watch_project method."""
+
+    @pytest.mark.unit
+    def test_watch_project_finds_builds(self, mocker: MockerFixture) -> None:
+        """Test watch_project finds and streams active builds."""
+        from fuzzytail.ui.display import LogDisplay
+        from fuzzytail.models import Build, BuildState
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        mock_build = Build(
+            id=12345,
+            owner="testowner",
+            project="testproject",
+            package_name="testpackage",
+            state=BuildState.RUNNING,
+            chroots=[],
+        )
+
+        # Mock stream_build to raise KeyboardInterrupt to exit the loop
+        def mock_stream_build(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        mocker.patch.object(display, "stream_build", side_effect=mock_stream_build)
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_running_builds.return_value = [mock_build]
+        mock_copr.get_pending_builds.return_value = []
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        try:
+            display.watch_project("testowner", "testproject")
+        except KeyboardInterrupt:
+            pass
+
+        assert mock_console.print.called
+
+    @pytest.mark.unit
+    def test_watch_project_filters_by_package(self, mocker: MockerFixture) -> None:
+        """Test watch_project filters builds by package name."""
+        from fuzzytail.ui.display import LogDisplay
+        from fuzzytail.models import Build, BuildState
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        build1 = Build(
+            id=12345,
+            owner="testowner",
+            project="testproject",
+            package_name="wanted-package",
+            state=BuildState.RUNNING,
+            chroots=[],
+        )
+        build2 = Build(
+            id=12346,
+            owner="testowner",
+            project="testproject",
+            package_name="other-package",
+            state=BuildState.RUNNING,
+            chroots=[],
+        )
+
+        # Mock stream_build to raise KeyboardInterrupt to exit the loop
+        def mock_stream_build(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        mock_stream = mocker.patch.object(
+            display, "stream_build", side_effect=mock_stream_build
+        )
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_running_builds.return_value = [build1, build2]
+        mock_copr.get_pending_builds.return_value = []
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        try:
+            display.watch_project("testowner", "testproject", package="wanted-package")
+        except KeyboardInterrupt:
+            pass
+
+        # Should only stream the wanted package
+        assert mock_stream.call_count == 1
+        call_args = mock_stream.call_args[0]
+        assert call_args[0].package_name == "wanted-package"
+
+    @pytest.mark.unit
+    def test_watch_project_handles_errors(self, mocker: MockerFixture) -> None:
+        """Test watch_project handles errors gracefully."""
+        from fuzzytail.ui.display import LogDisplay
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        call_count = [0]
+
+        def mock_running(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("API Error")
+            raise KeyboardInterrupt()
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_running_builds.side_effect = mock_running
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        try:
+            display.watch_project("testowner", "testproject")
+        except KeyboardInterrupt:
+            pass
+
+        # Should print error message
+        assert any("Error" in str(call) for call in mock_console.print.call_args_list)
+
+    @pytest.mark.unit
+    def test_watch_project_no_active_builds(self, mocker: MockerFixture) -> None:
+        """Test watch_project when no active builds."""
+        from fuzzytail.ui.display import LogDisplay
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+
+        mock_copr_class = mocker.patch("fuzzytail.ui.display.CoprService")
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        call_count = [0]
+
+        def mock_running(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return []
+            raise KeyboardInterrupt()
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_running_builds.side_effect = mock_running
+        mock_copr.get_pending_builds.return_value = []
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        try:
+            display.watch_project("testowner", "testproject")
+        except KeyboardInterrupt:
+            pass
+
+        # Should print "waiting" message
+        assert any(
+            "Waiting" in str(call) or "No active" in str(call)
+            for call in mock_console.print.call_args_list
+        )
+
+
+class TestInterruptibleSleepDisplay:
+    """Tests for _interruptible_sleep in display module."""
+
+    @pytest.mark.unit
+    def test_interruptible_sleep_display(self) -> None:
+        """Test _interruptible_sleep in display module."""
+        from fuzzytail.ui.display import _interruptible_sleep
+        import time
+
+        start = time.time()
+        _interruptible_sleep(0.2, interval=0.05)
+        elapsed = time.time() - start
+
+        assert 0.15 < elapsed < 0.4
+
+
+class TestStreamBuildWithRefresh:
+    """Tests for _stream_build_with_refresh method."""
+
+    @pytest.mark.unit
+    def test_stream_build_with_refresh_handles_exception(
+        self, mocker: MockerFixture, sample_build: Build
+    ) -> None:
+        """Test _stream_build_with_refresh handles exceptions during refresh."""
+        from fuzzytail.ui.display import LogDisplay
+
+        mock_console = mocker.MagicMock(spec=Console)
+        display = LogDisplay(console=mock_console)
+        mocker.patch("fuzzytail.ui.display._interruptible_sleep")
+
+        mock_streamer = mocker.MagicMock()
+        mock_streamer.get_new_content.return_value = None
+        mock_streamer.is_log_complete.return_value = True
+
+        mock_copr = mocker.MagicMock()
+        # First call succeeds, second raises exception
+        mock_copr.get_build.side_effect = [sample_build, Exception("Refresh failed")]
+
+        # This should not raise, just continue with cached build
+        display._stream_build_with_refresh(sample_build, mock_copr, mock_streamer, 0.01)

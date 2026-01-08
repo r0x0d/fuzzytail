@@ -396,3 +396,258 @@ class TestInterruptibleSleep:
         elapsed = time.time() - start
 
         assert 0.15 < elapsed < 0.4  # Allow some tolerance
+
+
+class TestStreamLogs:
+    """Tests for stream_logs method."""
+
+    @pytest.mark.unit
+    def test_stream_logs_calls_callback(
+        self, mocker: MockerFixture, sample_build_log: BuildLog
+    ) -> None:
+        """Test stream_logs calls callback with chunks."""
+        streamer = LogStreamer(poll_interval=0.01)
+
+        # Mock to return content first time, then mark as complete
+        call_count = [0]
+
+        def mock_get_new_content(log):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return LogChunk(log=log, content="test content")
+            return None
+
+        def mock_is_complete(log):
+            return call_count[0] >= 1
+
+        mocker.patch.object(
+            streamer, "get_new_content", side_effect=mock_get_new_content
+        )
+        mocker.patch.object(streamer, "is_log_complete", side_effect=mock_is_complete)
+        mocker.patch("fuzzytail.services.logs._interruptible_sleep")
+
+        chunks_received = []
+
+        def on_chunk(chunk):
+            chunks_received.append(chunk)
+
+        streamer.stream_logs([sample_build_log], on_chunk)
+
+        assert len(chunks_received) >= 1
+
+    @pytest.mark.unit
+    def test_stream_logs_stop_condition(
+        self, mocker: MockerFixture, sample_build_log: BuildLog
+    ) -> None:
+        """Test stream_logs respects stop condition."""
+        streamer = LogStreamer(poll_interval=0.01)
+
+        call_count = [0]
+
+        def stop_condition():
+            call_count[0] += 1
+            return call_count[0] > 1
+
+        mocker.patch.object(streamer, "get_new_content", return_value=None)
+        mocker.patch.object(streamer, "is_log_complete", return_value=False)
+        mocker.patch("fuzzytail.services.logs._interruptible_sleep")
+
+        streamer.stream_logs([sample_build_log], lambda x: None, stop_condition)
+
+        # Should have stopped due to condition
+        assert call_count[0] > 0
+
+
+class TestIterLogChunks:
+    """Tests for iter_log_chunks method."""
+
+    @pytest.mark.unit
+    def test_iter_log_chunks_yields_chunks(
+        self, mocker: MockerFixture, sample_build_log: BuildLog
+    ) -> None:
+        """Test iter_log_chunks yields chunks."""
+        streamer = LogStreamer(poll_interval=0.01)
+
+        call_count = [0]
+
+        def mock_get_new_content(log):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return LogChunk(log=log, content="chunk 1")
+            return None
+
+        def mock_is_complete(log):
+            return call_count[0] >= 1
+
+        mocker.patch.object(
+            streamer, "get_new_content", side_effect=mock_get_new_content
+        )
+        mocker.patch.object(streamer, "is_log_complete", side_effect=mock_is_complete)
+        mocker.patch("fuzzytail.services.logs._interruptible_sleep")
+
+        chunks = list(streamer.iter_log_chunks([sample_build_log]))
+
+        assert len(chunks) >= 1
+        assert chunks[0].content == "chunk 1"
+
+    @pytest.mark.unit
+    def test_iter_log_chunks_stop_condition(
+        self, mocker: MockerFixture, sample_build_log: BuildLog
+    ) -> None:
+        """Test iter_log_chunks respects stop condition."""
+        streamer = LogStreamer(poll_interval=0.01)
+
+        call_count = [0]
+
+        def stop_condition():
+            call_count[0] += 1
+            return call_count[0] > 1
+
+        mocker.patch.object(streamer, "get_new_content", return_value=None)
+        mocker.patch.object(streamer, "is_log_complete", return_value=False)
+        mocker.patch("fuzzytail.services.logs._interruptible_sleep")
+
+        chunks = list(streamer.iter_log_chunks([sample_build_log], stop_condition))
+
+        assert chunks == []
+
+    @pytest.mark.unit
+    def test_iter_log_chunks_multiple_logs(self, mocker: MockerFixture) -> None:
+        """Test iter_log_chunks handles multiple logs."""
+        streamer = LogStreamer(poll_interval=0.01)
+
+        log1 = BuildLog(
+            build_id=1,
+            log_type=BuildLogType.BACKEND,
+            source=LogSource.SRPM,
+            url="http://example.com/log1",
+        )
+        log2 = BuildLog(
+            build_id=1,
+            log_type=BuildLogType.BACKEND,
+            source=LogSource.RPM,
+            chroot="fedora-43-x86_64",
+            url="http://example.com/log2",
+        )
+
+        chunks_returned = {}
+
+        def mock_get_new_content(log):
+            if log.url not in chunks_returned:
+                chunks_returned[log.url] = True
+                return LogChunk(log=log, content=f"content from {log.url}")
+            return None
+
+        def mock_is_complete(log):
+            return log.url in chunks_returned
+
+        mocker.patch.object(
+            streamer, "get_new_content", side_effect=mock_get_new_content
+        )
+        mocker.patch.object(streamer, "is_log_complete", side_effect=mock_is_complete)
+        mocker.patch("fuzzytail.services.logs._interruptible_sleep")
+
+        chunks = list(streamer.iter_log_chunks([log1, log2]))
+
+        assert len(chunks) >= 2
+
+
+class TestIsLogCompleteRequestError:
+    """Tests for is_log_complete handling request errors."""
+
+    @pytest.mark.unit
+    def test_is_log_complete_request_error(
+        self, mocker: MockerFixture, sample_build_log: BuildLog
+    ) -> None:
+        """Test is_log_complete handles RequestError gracefully."""
+        streamer = LogStreamer()
+
+        mock_client = mocker.MagicMock()
+        mock_client.head.side_effect = httpx.RequestError("Connection failed")
+
+        mocker.patch.object(streamer, "_client", mock_client)
+
+        is_complete = streamer.is_log_complete(sample_build_log)
+
+        assert is_complete is False
+
+
+class TestFetchUrlEdgeCases:
+    """Tests for _fetch_url edge cases."""
+
+    @pytest.mark.unit
+    def test_fetch_url_http_status_error(self, mocker: MockerFixture) -> None:
+        """Test _fetch_url handles HTTPStatusError with retries."""
+        streamer = LogStreamer(max_retries=2)
+
+        mock_client = mocker.MagicMock()
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server Error",
+            request=mocker.MagicMock(),
+            response=mock_response,
+        )
+        mock_client.get.return_value = mock_response
+
+        mocker.patch.object(streamer, "_client", mock_client)
+
+        result = streamer._fetch_url("http://example.com/log")
+
+        assert result is None
+        assert mock_client.get.call_count == 2  # max_retries
+
+    @pytest.mark.unit
+    def test_fetch_url_decompresses_gzip(self, mocker: MockerFixture) -> None:
+        """Test _fetch_url decompresses gzip content."""
+        import gzip
+
+        streamer = LogStreamer()
+
+        mock_client = mocker.MagicMock()
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = gzip.compress(b"decompressed content")
+        mock_response.raise_for_status = mocker.MagicMock()
+        mock_client.get.return_value = mock_response
+
+        mocker.patch.object(streamer, "_client", mock_client)
+
+        result = streamer._fetch_url("http://example.com/log.gz", compressed=True)
+
+        assert result == "decompressed content"
+
+    @pytest.mark.unit
+    def test_fetch_url_bad_gzip_fallback(self, mocker: MockerFixture) -> None:
+        """Test _fetch_url falls back to plain text for bad gzip."""
+        streamer = LogStreamer()
+
+        mock_client = mocker.MagicMock()
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"not gzipped content"
+        mock_response.text = "not gzipped content"
+        mock_response.raise_for_status = mocker.MagicMock()
+        mock_client.get.return_value = mock_response
+
+        mocker.patch.object(streamer, "_client", mock_client)
+
+        result = streamer._fetch_url("http://example.com/log.gz", compressed=True)
+
+        assert result == "not gzipped content"
+
+    @pytest.mark.unit
+    def test_fetch_url_returns_none_after_retries(self, mocker: MockerFixture) -> None:
+        """Test _fetch_url returns None after all retries fail."""
+        streamer = LogStreamer(max_retries=2)
+
+        mock_client = mocker.MagicMock()
+        mock_client.get.side_effect = httpx.RequestError("Network error")
+
+        mocker.patch.object(streamer, "_client", mock_client)
+        mocker.patch("time.sleep")
+
+        result = streamer._fetch_url("http://example.com/log")
+
+        assert result is None
+        assert mock_client.get.call_count == 2
