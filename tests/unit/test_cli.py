@@ -279,9 +279,9 @@ class TestWatchCmd:
         mock_display.watch_project.side_effect = KeyboardInterrupt()
         mock_display_class.return_value = mock_display
 
-        # Test with skip_backend
+        # Test with skip_backend (use no_tui=True to avoid TUI mode)
         try:
-            watch_cmd("testowner/testproject", skip_backend=True)
+            watch_cmd("testowner/testproject", skip_backend=True, no_tui=True)
         except KeyboardInterrupt:
             pass
 
@@ -333,7 +333,7 @@ class TestDefaultCommand:
         mock_display = mocker.MagicMock()
         mock_display_class.return_value = mock_display
 
-        default_command("testowner/testproject", build_id=12345)
+        default_command("testowner/testproject", build_id=12345, no_tui=True)
 
         mock_copr.get_build.assert_called_once_with(12345)
         mock_display.stream_build.assert_called_once()

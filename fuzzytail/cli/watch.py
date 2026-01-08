@@ -81,6 +81,13 @@ def watch_cmd(
             help="Poll interval in seconds for checking new builds",
         ),
     ] = 5.0,
+    no_tui: Annotated[
+        bool,
+        cyclopts.Parameter(
+            ["--no-tui"],
+            help="Disable interactive TUI mode (use plain output)",
+        ),
+    ] = False,
 ) -> None:
     """Watch a project for new builds and stream their logs.
 
@@ -107,6 +114,30 @@ def watch_cmd(
     if not log_types:
         log_types = None  # Show all if nothing selected
 
+    # Use TUI mode by default
+    if not no_tui:
+        from fuzzytail.ui.tui import FuzzytailApp
+
+        app = FuzzytailApp(
+            owner=owner,
+            project=project_name,
+            package=package,
+            chroot=chroot,
+            show_import=not skip_import,
+            show_srpm=srpm,
+            show_rpm=rpm,
+            log_types=log_types,
+            poll_interval=poll_interval,
+        )
+
+        try:
+            app.run()
+        except Exception as e:
+            console.print(f"[red]TUI Error: {e}[/red]")
+            raise SystemExit(1)
+        return
+
+    # Fallback to non-TUI mode
     chroots = [chroot] if chroot else None
 
     display = LogDisplay(

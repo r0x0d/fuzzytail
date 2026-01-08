@@ -99,6 +99,13 @@ def default_command(
             help="Poll interval in seconds",
         ),
     ] = 2.0,
+    no_tui: Annotated[
+        bool,
+        cyclopts.Parameter(
+            ["--no-tui"],
+            help="Disable interactive TUI mode (use plain output)",
+        ),
+    ] = False,
 ) -> None:
     """Watch COPR build logs for a project.
 
@@ -133,6 +140,31 @@ def default_command(
     show_srpm = not rpm_only
     show_rpm = not srpm_only
 
+    # Use TUI mode by default
+    if not no_tui:
+        from fuzzytail.ui.tui import FuzzytailApp
+
+        app = FuzzytailApp(
+            owner=owner,
+            project=project_name,
+            package=package,
+            chroot=chroot,
+            build_id=build_id,
+            show_import=not skip_import,
+            show_srpm=show_srpm,
+            show_rpm=show_rpm,
+            log_types=log_types,
+            poll_interval=poll_interval,
+        )
+
+        try:
+            app.run()
+        except Exception as e:
+            console.print(f"[red]TUI Error: {e}[/red]")
+            raise SystemExit(1)
+        return
+
+    # Fallback to non-TUI mode
     # Chroot filter
     chroots = [chroot] if chroot else None
 
