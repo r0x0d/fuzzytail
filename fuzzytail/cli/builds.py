@@ -1,6 +1,6 @@
 """Builds command for listing project builds."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 import cyclopts
 from rich.console import Console
@@ -18,14 +18,14 @@ def builds_cmd(
     ],
     *,
     package: Annotated[
-        Optional[str],
+        str | None,
         cyclopts.Parameter(
             ["--package", "-p"],
             help="Filter by package name",
         ),
     ] = None,
     status: Annotated[
-        Optional[str],
+        str | None,
         cyclopts.Parameter(
             ["--status", "-s"],
             help="Filter by status (running, pending, succeeded, failed)",
@@ -88,4 +88,4 @@ def builds_cmd(
 
     except CoprError as e:
         console.print(f"[red]COPR Error: {e}[/red]")
-        raise SystemExit(1)
+        raise SystemExit(1) from e

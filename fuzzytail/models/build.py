@@ -1,7 +1,6 @@
 """Pydantic models for COPR build structures."""
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -67,10 +66,10 @@ class BuildLog(BaseModel):
     build_id: int = Field(description="The COPR build ID")
     log_type: BuildLogType = Field(description="Type of log")
     source: LogSource = Field(description="Source of log (import, srpm, or rpm)")
-    chroot: Optional[str] = Field(
+    chroot: str | None = Field(
         default=None, description="Chroot name (only for RPM builds)"
     )
-    package_name: Optional[str] = Field(
+    package_name: str | None = Field(
         default=None, description="Package name (only for RPM builds)"
     )
     url: str = Field(description="URL to the log file")
@@ -93,7 +92,7 @@ class BuildChroot(BaseModel):
 
     name: str = Field(description="Chroot name (e.g., fedora-43-x86_64)")
     state: BuildState = Field(description="Current state of this chroot build")
-    result_url: Optional[str] = Field(
+    result_url: str | None = Field(
         default=None, description="URL to the build results directory"
     )
 
@@ -104,23 +103,23 @@ class Build(BaseModel):
     id: int = Field(description="The COPR build ID")
     owner: str = Field(description="Owner of the COPR project")
     project: str = Field(description="COPR project name")
-    package_name: Optional[str] = Field(
+    package_name: str | None = Field(
         default=None, description="Name of the package being built"
     )
     state: BuildState = Field(description="Current state of the build")
-    source_package_url: Optional[str] = Field(
+    source_package_url: str | None = Field(
         default=None, description="URL to the source package"
     )
     chroots: list[BuildChroot] = Field(
         default_factory=list, description="List of chroot builds"
     )
-    submitted_on: Optional[int] = Field(
+    submitted_on: int | None = Field(
         default=None, description="Unix timestamp when build was submitted"
     )
-    started_on: Optional[int] = Field(
+    started_on: int | None = Field(
         default=None, description="Unix timestamp when build started"
     )
-    ended_on: Optional[int] = Field(
+    ended_on: int | None = Field(
         default=None, description="Unix timestamp when build ended"
     )
 
@@ -170,7 +169,7 @@ class Build(BaseModel):
 
         return logs
 
-    def get_rpm_log_urls(self, chroot: Optional[str] = None) -> list[BuildLog]:
+    def get_rpm_log_urls(self, chroot: str | None = None) -> list[BuildLog]:
         """Get URLs for RPM build logs for specified or all chroots."""
         logs = []
         target_chroots = self.chroots
@@ -200,7 +199,7 @@ class Build(BaseModel):
 
         return logs
 
-    def get_all_log_urls(self, chroot: Optional[str] = None) -> list[BuildLog]:
+    def get_all_log_urls(self, chroot: str | None = None) -> list[BuildLog]:
         """Get all log URLs for this build, including import log."""
         return (
             [self.get_import_log()]

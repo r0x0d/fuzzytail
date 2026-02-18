@@ -12,9 +12,8 @@ dependencies = [
     "cyclopts>=4.3.0",
     "httpx>=0.28.0",
     "pydantic>=2.10.0",
-    "pyperclip>=1.9.0",
     "rich>=14.2.0",
-    "textual>=3.0.0",
+    "textual>=1.0.0",
 ]
 authors = [
     { name = "Rodolfo Olivieri", email = "rodolfo.olivieri3@gmail.com"}
@@ -39,7 +38,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-[project.url]
+[project.urls]
 "Source code" = "https://github.com/r0x0d/fuzzytail"
 "Bug Tracker" = "https://github.com/r0x0d/fuzzytail/issues"
 
@@ -56,6 +55,7 @@ source = "vcs"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.0.0",
     "pyright>=1.1.407",
     "ruff>=0.14.7",
 ]
@@ -76,6 +76,25 @@ markers = [
     "functional: Functional tests without mocking (requires network)",
 ]
 addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "F",     # Pyflakes (F401 unused imports, F841 unused variables)
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort (import sorting)
+    "UP",    # pyupgrade (modernize syntax)
+    "B",     # flake8-bugbear (common bugs)
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking (optimize TYPE_CHECKING imports)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fuzzytail"]
 
 [tool.coverage.run]
 source = ["fuzzytail"]

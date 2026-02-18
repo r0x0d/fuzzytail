@@ -1,17 +1,18 @@
 """Logs command for fetching specific build logs."""
 
-from typing import TYPE_CHECKING, Annotated, Optional
+import re
+from typing import TYPE_CHECKING, Annotated
 
 import cyclopts
 from rich.console import Console
 from rich.prompt import IntPrompt
 from rich.table import Table
+from rich.text import Text
 
 from fuzzytail.models import Build, BuildLogType
 
 if TYPE_CHECKING:
     from fuzzytail.services.copr import CoprService
-    from fuzzytail.ui.display import LogDisplay
 
 console = Console()
 
@@ -23,28 +24,28 @@ def logs_cmd(
     ],
     *,
     build_id: Annotated[
-        Optional[int],
+        int | None,
         cyclopts.Parameter(
             ["--build", "-b"],
             help="Specific build ID to fetch logs for",
         ),
     ] = None,
     package: Annotated[
-        Optional[str],
+        str | None,
         cyclopts.Parameter(
             ["--package", "-p"],
             help="Filter by package name",
         ),
     ] = None,
     chroot: Annotated[
-        Optional[str],
+        str | None,
         cyclopts.Parameter(
             ["--chroot", "-c"],
             help="Filter by chroot",
         ),
     ] = None,
     log_type: Annotated[
-        Optional[str],
+        str | None,
         cyclopts.Parameter(
             ["--type", "-t"],
             help="Log type: 'import', 'builder-live', or 'backend'",
@@ -99,6 +100,13 @@ def logs_cmd(
             help="Number of builds to show when selecting",
         ),
     ] = 10,
+    grep: Annotated[
+        str | None,
+        cyclopts.Parameter(
+            ["--grep", "-g"],
+            help="Filter log lines by regex pattern (like grep)",
+        ),
+    ] = None,
 ) -> None:
     """Fetch and display logs for a build.
 
@@ -109,9 +117,9 @@ def logs_cmd(
         fuzzytail logs owner/project --build 12345678
         fuzzytail logs owner/project --package broot
         fuzzytail logs owner/project --type builder-live --follow
+        fuzzytail logs owner/project --build 12345678 --grep "error|warning"
     """
     from fuzzytail.services.copr import CoprError, CoprService
-    from fuzzytail.ui.display import LogDisplay
 
     # Validate project format
     if "/" not in project:
@@ -132,20 +140,11 @@ def logs_cmd(
                 f"[red]Invalid log type: {log_type}. "
                 f"Use 'import', 'builder-live', or 'backend'.[/red]"
             )
-            raise SystemExit(1)
+            raise SystemExit(1) from None
 
     show_srpm = not rpm_only
     show_rpm = not srpm_only
     chroots = [chroot] if chroot else None
-
-    display = LogDisplay(
-        console=console,
-        show_import=not skip_import,
-        show_srpm=show_srpm,
-        show_rpm=show_rpm,
-        log_types=log_types,
-        chroots=chroots,
-    )
 
     try:
         with CoprService() as copr:
@@ -179,20 +178,48 @@ def logs_cmd(
                         return
 
             if follow:
-                console.print(f"[bold]Following logs for build #{build.id}...[/bold]\n")
-                display.stream_build(build, poll_interval=poll_interval)
+                # Launch the TUI for live streaming
+                from fuzzytail.ui.tui import BuildTUI
+
+                tui = BuildTUI(
+                    build=build,
+                    show_import=not skip_import,
+                    show_srpm=show_srpm,
+                    show_rpm=show_rpm,
+                    log_types=log_types,
+                    chroots=chroots,
+                    grep_pattern=grep,
+                    poll_interval=poll_interval,
+                )
+                tui.run()
             else:
-                # Fetch and display complete logs
-                _display_complete_logs(build, display, chroot)
+                # Fetch and display complete logs (one-shot, non-interactive)
+                grep_re: re.Pattern[str] | None = None
+                if grep:
+                    try:
+                        grep_re = re.compile(grep, re.IGNORECASE)
+                    except re.error:
+                        grep_re = re.compile(re.escape(grep), re.IGNORECASE)
+
+                _display_complete_logs(
+                    build,
+                    chroot=chroot,
+                    show_import=not skip_import,
+                    show_srpm=show_srpm,
+                    show_rpm=show_rpm,
+                    log_types=log_types,
+                    chroots_filter=chroots,
+                    grep_re=grep_re,
+                )
 
     except CoprError as e:
         console.print(f"[red]COPR Error: {e}[/red]")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted.[/yellow]")
 
 
-def _select_build(builds: list[Build], copr: "CoprService") -> Optional[Build]:
+def _select_build(builds: list[Build], copr: "CoprService") -> Build | None:
     """Display builds and prompt user to select one.
 
     Args:
@@ -218,24 +245,22 @@ def _select_build(builds: list[Build], copr: "CoprService") -> Optional[Build]:
     for idx, build in enumerate(builds, 1):
         build_map[idx] = build
 
-        from rich.text import Text
-
         state_text = Text()
         icon = get_state_icon(build.state)
         state_text.append(
             f"{icon} {build.state.value}", style=get_state_style(build.state)
         )
 
-        chroots = ", ".join(c.name for c in build.chroots[:2])
+        chroot_names = ", ".join(c.name for c in build.chroots[:2])
         if len(build.chroots) > 2:
-            chroots += f" (+{len(build.chroots) - 2})"
+            chroot_names += f" (+{len(build.chroots) - 2})"
 
         table.add_row(
             str(idx),
             str(build.id),
             build.package_name or "-",
             state_text,
-            chroots or "-",
+            chroot_names or "-",
         )
 
     console.print(table)
@@ -260,18 +285,30 @@ def _select_build(builds: list[Build], copr: "CoprService") -> Optional[Build]:
 
 def _display_complete_logs(
     build: Build,
-    display: "LogDisplay",
-    chroot: Optional[str],
+    *,
+    chroot: str | None,
+    show_import: bool,
+    show_srpm: bool,
+    show_rpm: bool,
+    log_types: list[BuildLogType] | None,
+    chroots_filter: list[str] | None,
+    grep_re: re.Pattern[str] | None,
 ) -> None:
     """Display complete (non-streaming) logs for a build.
 
     Args:
         build: The Build object.
-        display: LogDisplay instance.
-        chroot: Optional chroot filter.
+        chroot: Optional chroot filter for log URLs.
+        show_import: Whether to include import logs.
+        show_srpm: Whether to include SRPM logs.
+        show_rpm: Whether to include RPM logs.
+        log_types: Specific log types to show.
+        chroots_filter: Specific chroots to filter.
+        grep_re: Compiled regex for filtering lines.
     """
     from fuzzytail.services.logs import LogStreamer
     from fuzzytail.ui.panels import BuildPanel
+    from fuzzytail.utils import filter_logs
 
     # Show build info
     build_panel = BuildPanel(build)
@@ -280,7 +317,14 @@ def _display_complete_logs(
 
     # Get logs
     all_logs = build.get_all_log_urls(chroot=chroot)
-    logs = display._filter_logs(all_logs)
+    logs = filter_logs(
+        all_logs,
+        show_import=show_import,
+        show_srpm=show_srpm,
+        show_rpm=show_rpm,
+        log_types=log_types,
+        chroots=chroots_filter,
+    )
 
     if not logs:
         console.print("[yellow]No logs match the specified filters.[/yellow]")
@@ -290,8 +334,16 @@ def _display_complete_logs(
         for log in logs:
             content = streamer.fetch_log(log)
             if content:
-                console.print(display._format_log_header(log))
-                console.print(content)
+                # Print log header
+                console.print(f"\n[bold cyan]── {log.display_name} ──[/bold cyan]\n")
+                if grep_re:
+                    for line in content.split("\n"):
+                        if grep_re.search(line):
+                            console.print(Text.from_ansi(line))
+                else:
+                    # Preserve ANSI colors from COPR logs
+                    for line in content.split("\n"):
+                        console.print(Text.from_ansi(line))
                 console.print()
             else:
                 console.print(

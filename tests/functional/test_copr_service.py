@@ -84,19 +84,17 @@ class TestCoprServiceFunctional:
     @pytest.mark.functional
     def test_get_nonexistent_build(self) -> None:
         """Test that fetching nonexistent build raises CoprError."""
-        with CoprService() as copr:
+        with CoprService() as copr, pytest.raises(CoprError):
             # Use an impossibly high build ID
-            with pytest.raises(CoprError):
-                copr.get_build(999999999)
+            copr.get_build(999999999)
 
     @pytest.mark.functional
     def test_get_project_builds_nonexistent_project(self) -> None:
         """Test that fetching from nonexistent project raises CoprError."""
-        with CoprService() as copr:
-            with pytest.raises(CoprError):
-                copr.get_project_builds(
-                    "nonexistent_user_12345", "nonexistent_project_67890"
-                )
+        with CoprService() as copr, pytest.raises(CoprError):
+            copr.get_project_builds(
+                "nonexistent_user_12345", "nonexistent_project_67890"
+            )
 
     @pytest.mark.functional
     def test_build_properties(self) -> None:

@@ -1,11 +1,11 @@
 """Rich panel components for build information display."""
 
-from rich.console import Console, Group
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from fuzzytail.models import Build, BuildLog, BuildState, LogSource
+from fuzzytail.models import Build, BuildState
 
 
 def get_state_style(state: BuildState) -> str:
@@ -74,7 +74,7 @@ class BuildPanel:
             Rich Panel object.
         """
         table = Table(show_header=False, box=None, padding=(0, 2))
-        table.add_column("Key", style="cyan")
+        table.add_column("Key", style="bold cyan")
         table.add_column("Value")
 
         state_text = Text()
@@ -103,66 +103,8 @@ class BuildPanel:
 
         return Panel(
             table,
-            title=f"[bold]Build #{self.build.id}[/bold]",
-            border_style="blue",
-        )
-
-
-class LogPanel:
-    """Panel for displaying log information and status."""
-
-    def __init__(self, logs: list[BuildLog]):
-        """Initialize the log panel.
-
-        Args:
-            logs: List of BuildLog objects.
-        """
-        self.logs = logs
-        self._active: set[str] = set()
-
-    def set_active(self, log_url: str, active: bool = True) -> None:
-        """Mark a log as active (currently being streamed).
-
-        Args:
-            log_url: The URL of the log.
-            active: Whether the log is active.
-        """
-        if active:
-            self._active.add(log_url)
-        else:
-            self._active.discard(log_url)
-
-    def render(self, console: Console) -> Panel:
-        """Render the log panel.
-
-        Args:
-            console: Rich Console for rendering.
-
-        Returns:
-            Rich Panel object.
-        """
-        table = Table(show_header=True, box=None, padding=(0, 1))
-        table.add_column("Status", width=3)
-        table.add_column("Source", style="cyan", width=6)
-        table.add_column("Type", style="magenta", width=14)
-        table.add_column("Chroot", style="yellow")
-
-        for log in self.logs:
-            is_active = log.url in self._active
-            status_icon = "🔴" if is_active else "⚪"
-
-            source = "SRPM" if log.source == LogSource.SRPM else "RPM"
-            chroot = log.chroot or "-"
-
-            table.add_row(
-                status_icon,
-                source,
-                log.log_type.value,
-                chroot,
-            )
-
-        return Panel(
-            table,
-            title="[bold]Log Sources[/bold]",
-            border_style="green",
+            title=f"[bold white]🔨 Build #{self.build.id}[/bold white]",
+            subtitle=f"[dim]{self.build.owner}/{self.build.project}[/dim]",
+            border_style="bright_blue",
+            padding=(1, 2),
         )

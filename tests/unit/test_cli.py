@@ -177,9 +177,7 @@ class TestLogsCmd:
         from fuzzytail.cli.logs import logs_cmd
 
         mocker.patch("fuzzytail.cli.logs.console")
-        # CoprService is imported inside the function, so patch at source
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mocker.patch("fuzzytail.ui.display.LogDisplay")
 
         mock_copr = mocker.MagicMock()
         mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
@@ -193,13 +191,14 @@ class TestLogsCmd:
 
     @pytest.mark.unit
     def test_logs_cmd_with_build_id(self, mocker: MockerFixture) -> None:
-        """Test logs_cmd with specific build ID."""
+        """Test logs_cmd with specific build ID (non-follow)."""
         from fuzzytail.cli.logs import logs_cmd
 
         mocker.patch("fuzzytail.cli.logs.console")
-        # CoprService is imported inside the function, so patch at source
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_display_complete = mocker.patch(
+            "fuzzytail.cli.logs._display_complete_logs"
+        )
 
         mock_build = Build(
             id=12345,
@@ -221,13 +220,10 @@ class TestLogsCmd:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = []
-        mock_display_class.return_value = mock_display
-
         logs_cmd("testowner/testproject", build_id=12345)
 
         mock_copr.get_build.assert_called_once_with(12345)
+        mock_display_complete.assert_called_once()
 
     @pytest.mark.unit
     def test_logs_cmd_no_builds(self, mocker: MockerFixture) -> None:
@@ -235,9 +231,7 @@ class TestLogsCmd:
         from fuzzytail.cli.logs import logs_cmd
 
         mock_console = mocker.patch("fuzzytail.cli.logs.console")
-        # CoprService is imported inside the function, so patch at source
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mocker.patch("fuzzytail.ui.display.LogDisplay")
 
         mock_copr = mocker.MagicMock()
         mock_copr.get_project_builds.return_value = []
@@ -251,46 +245,13 @@ class TestLogsCmd:
         mock_console.print.assert_called()
 
     @pytest.mark.unit
-    def test_logs_cmd_skip_backend(self, mocker: MockerFixture) -> None:
-        """Test logs_cmd with skip_backend flag."""
-        from fuzzytail.cli.logs import logs_cmd
-        from fuzzytail.models import BuildLogType
-
-        mocker.patch("fuzzytail.cli.logs.console")
-        mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
-
-        mock_build = Build(
-            id=12345,
-            owner="testowner",
-            project="testproject",
-            state=BuildState.SUCCEEDED,
-            chroots=[],
-        )
-
-        mock_copr = mocker.MagicMock()
-        mock_copr.get_build.return_value = mock_build
-        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
-        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
-        mock_copr_class.return_value = mock_copr
-
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = []
-        mock_display_class.return_value = mock_display
-
-        logs_cmd("testowner/testproject", build_id=12345, skip_backend=True)
-
-        call_kwargs = mock_display_class.call_args.kwargs
-        assert call_kwargs["log_types"] == [BuildLogType.BUILDER_LIVE]
-
-    @pytest.mark.unit
     def test_logs_cmd_single_build_auto_select(self, mocker: MockerFixture) -> None:
         """Test logs_cmd auto-selects when only one build found."""
         from fuzzytail.cli.logs import logs_cmd
 
         mock_console = mocker.patch("fuzzytail.cli.logs.console")
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mocker.patch("fuzzytail.cli.logs._display_complete_logs")
 
         mock_build = Build(
             id=12345,
@@ -308,10 +269,6 @@ class TestLogsCmd:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = []
-        mock_display_class.return_value = mock_display
-
         logs_cmd("testowner/testproject")
 
         # Should auto-select the single build
@@ -323,12 +280,12 @@ class TestLogsCmd:
 
     @pytest.mark.unit
     def test_logs_cmd_follow_mode(self, mocker: MockerFixture) -> None:
-        """Test logs_cmd with follow flag."""
+        """Test logs_cmd with follow flag launches TUI."""
         from fuzzytail.cli.logs import logs_cmd
 
-        mock_console = mocker.patch("fuzzytail.cli.logs.console")
+        mocker.patch("fuzzytail.cli.logs.console")
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
         mock_build = Build(
             id=12345,
@@ -344,16 +301,14 @@ class TestLogsCmd:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display_class.return_value = mock_display
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
         logs_cmd("testowner/testproject", build_id=12345, follow=True)
 
-        # Should call stream_build in follow mode
-        mock_display.stream_build.assert_called_once()
-        assert any(
-            "Following logs" in str(call) for call in mock_console.print.call_args_list
-        )
+        # Should launch the TUI
+        mock_tui_class.assert_called_once()
+        mock_tui.run.assert_called_once()
 
     @pytest.mark.unit
     def test_logs_cmd_copr_error(self, mocker: MockerFixture) -> None:
@@ -363,7 +318,6 @@ class TestLogsCmd:
 
         mocker.patch("fuzzytail.cli.logs.console")
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mocker.patch("fuzzytail.ui.display.LogDisplay")
 
         mock_copr = mocker.MagicMock()
         mock_copr.get_build.side_effect = CoprError("API Error")
@@ -383,7 +337,7 @@ class TestLogsCmd:
 
         mocker.patch("fuzzytail.cli.logs.console")
         mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
         mock_build = Build(
             id=12345,
@@ -399,12 +353,43 @@ class TestLogsCmd:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display.stream_build.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        mock_tui = mocker.MagicMock()
+        mock_tui.run.side_effect = KeyboardInterrupt()
+        mock_tui_class.return_value = mock_tui
 
         # Should not raise, just print message
         logs_cmd("testowner/testproject", build_id=12345, follow=True)
+
+    @pytest.mark.unit
+    def test_logs_cmd_skip_backend(self, mocker: MockerFixture) -> None:
+        """Test logs_cmd with skip_backend flag."""
+        from fuzzytail.cli.logs import logs_cmd
+        from fuzzytail.models import BuildLogType
+
+        mocker.patch("fuzzytail.cli.logs.console")
+        mock_copr_class = mocker.patch("fuzzytail.services.copr.CoprService")
+        mock_display_complete = mocker.patch(
+            "fuzzytail.cli.logs._display_complete_logs"
+        )
+
+        mock_build = Build(
+            id=12345,
+            owner="testowner",
+            project="testproject",
+            state=BuildState.SUCCEEDED,
+            chroots=[],
+        )
+
+        mock_copr = mocker.MagicMock()
+        mock_copr.get_build.return_value = mock_build
+        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
+        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
+        mock_copr_class.return_value = mock_copr
+
+        logs_cmd("testowner/testproject", build_id=12345, skip_backend=True)
+
+        call_kwargs = mock_display_complete.call_args.kwargs
+        assert call_kwargs["log_types"] == [BuildLogType.BUILDER_LIVE]
 
 
 class TestSelectBuild:
@@ -505,7 +490,6 @@ class TestDisplayCompleteLogs:
     def test_display_complete_logs(self, mocker: MockerFixture) -> None:
         """Test _display_complete_logs fetches and displays logs."""
         from fuzzytail.cli.logs import _display_complete_logs
-        from fuzzytail.models import BuildLog, BuildLogType, LogSource
 
         mock_console = mocker.patch("fuzzytail.cli.logs.console")
         mock_streamer_class = mocker.patch("fuzzytail.services.logs.LogStreamer")
@@ -524,26 +508,23 @@ class TestDisplayCompleteLogs:
             ],
         )
 
-        mock_log = BuildLog(
-            build_id=12345,
-            log_type=BuildLogType.BACKEND,
-            source=LogSource.SRPM,
-            url="http://example.com/log",
-        )
-
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = [mock_log]
-        mock_display._format_log_header.return_value = "Header"
-
         mock_streamer = mocker.MagicMock()
         mock_streamer.fetch_log.return_value = "Log content here"
         mock_streamer.__enter__ = mocker.MagicMock(return_value=mock_streamer)
         mock_streamer.__exit__ = mocker.MagicMock(return_value=None)
         mock_streamer_class.return_value = mock_streamer
 
-        _display_complete_logs(mock_build, mock_display, None)
+        _display_complete_logs(
+            mock_build,
+            chroot=None,
+            show_import=True,
+            show_srpm=True,
+            show_rpm=True,
+            log_types=None,
+            chroots_filter=None,
+            grep_re=None,
+        )
 
-        mock_streamer.fetch_log.assert_called_once_with(mock_log)
         assert mock_console.print.called
 
     @pytest.mark.unit
@@ -554,6 +535,8 @@ class TestDisplayCompleteLogs:
         from fuzzytail.cli.logs import _display_complete_logs
 
         mock_console = mocker.patch("fuzzytail.cli.logs.console")
+        # Mock filter_logs to return empty list
+        mocker.patch("fuzzytail.utils.filter_logs", return_value=[])
 
         mock_build = Build(
             id=12345,
@@ -563,10 +546,16 @@ class TestDisplayCompleteLogs:
             chroots=[],
         )
 
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = []
-
-        _display_complete_logs(mock_build, mock_display, None)
+        _display_complete_logs(
+            mock_build,
+            chroot=None,
+            show_import=True,
+            show_srpm=True,
+            show_rpm=True,
+            log_types=None,
+            chroots_filter=None,
+            grep_re=None,
+        )
 
         # Should print "No logs match" message
         assert any(
@@ -577,7 +566,6 @@ class TestDisplayCompleteLogs:
     def test_display_complete_logs_no_content(self, mocker: MockerFixture) -> None:
         """Test _display_complete_logs when log has no content."""
         from fuzzytail.cli.logs import _display_complete_logs
-        from fuzzytail.models import BuildLog, BuildLogType, LogSource
 
         mock_console = mocker.patch("fuzzytail.cli.logs.console")
         mock_streamer_class = mocker.patch("fuzzytail.services.logs.LogStreamer")
@@ -587,18 +575,14 @@ class TestDisplayCompleteLogs:
             owner="testowner",
             project="testproject",
             state=BuildState.SUCCEEDED,
-            chroots=[],
+            chroots=[
+                BuildChroot(
+                    name="fedora-43-x86_64",
+                    state=BuildState.SUCCEEDED,
+                    result_url="http://example.com/results",
+                )
+            ],
         )
-
-        mock_log = BuildLog(
-            build_id=12345,
-            log_type=BuildLogType.BACKEND,
-            source=LogSource.SRPM,
-            url="http://example.com/log",
-        )
-
-        mock_display = mocker.MagicMock()
-        mock_display._filter_logs.return_value = [mock_log]
 
         mock_streamer = mocker.MagicMock()
         mock_streamer.fetch_log.return_value = None  # No content
@@ -606,7 +590,16 @@ class TestDisplayCompleteLogs:
         mock_streamer.__exit__ = mocker.MagicMock(return_value=None)
         mock_streamer_class.return_value = mock_streamer
 
-        _display_complete_logs(mock_build, mock_display, None)
+        _display_complete_logs(
+            mock_build,
+            chroot=None,
+            show_import=True,
+            show_srpm=True,
+            show_rpm=True,
+            log_types=None,
+            chroots_filter=None,
+            grep_re=None,
+        )
 
         # Should print "No content available" message
         assert any(
@@ -631,25 +624,35 @@ class TestWatchCmd:
         assert exc_info.value.code == 1
 
     @pytest.mark.unit
+    def test_watch_cmd_launches_tui(self, mocker: MockerFixture) -> None:
+        """Test watch_cmd launches the TUI."""
+        from fuzzytail.cli.watch import watch_cmd
+
+        mocker.patch("fuzzytail.cli.watch.console")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
+
+        watch_cmd("testowner/testproject")
+
+        mock_tui_class.assert_called_once()
+        mock_tui.run.assert_called_once()
+
+    @pytest.mark.unit
     def test_watch_cmd_determines_log_types(self, mocker: MockerFixture) -> None:
         """Test watch_cmd correctly determines log types from flags."""
         from fuzzytail.cli.watch import watch_cmd
         from fuzzytail.models import BuildLogType
 
         mocker.patch("fuzzytail.cli.watch.console")
-        mock_display_class = mocker.patch("fuzzytail.cli.watch.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        watch_cmd("testowner/testproject", skip_backend=True)
 
-        # Test with skip_backend (use no_tui=True to avoid TUI mode)
-        try:
-            watch_cmd("testowner/testproject", skip_backend=True, no_tui=True)
-        except KeyboardInterrupt:
-            pass
-
-        call_kwargs = mock_display_class.call_args.kwargs
+        call_kwargs = mock_tui_class.call_args.kwargs
         assert BuildLogType.BUILDER_LIVE in call_kwargs["log_types"]
         assert BuildLogType.BACKEND not in call_kwargs["log_types"]
 
@@ -660,18 +663,13 @@ class TestWatchCmd:
         from fuzzytail.models import BuildLogType
 
         mocker.patch("fuzzytail.cli.watch.console")
-        mock_display_class = mocker.patch("fuzzytail.cli.watch.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        watch_cmd("testowner/testproject", builder_live=False)
 
-        try:
-            watch_cmd("testowner/testproject", builder_live=False, no_tui=True)
-        except KeyboardInterrupt:
-            pass
-
-        call_kwargs = mock_display_class.call_args.kwargs
+        call_kwargs = mock_tui_class.call_args.kwargs
         assert BuildLogType.BACKEND in call_kwargs["log_types"]
         assert BuildLogType.BUILDER_LIVE not in call_kwargs["log_types"]
 
@@ -681,57 +679,18 @@ class TestWatchCmd:
         from fuzzytail.cli.watch import watch_cmd
 
         mocker.patch("fuzzytail.cli.watch.console")
-        mock_display_class = mocker.patch("fuzzytail.cli.watch.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        watch_cmd(
+            "testowner/testproject",
+            builder_live=False,
+            backend=False,
+        )
 
-        try:
-            watch_cmd(
-                "testowner/testproject",
-                builder_live=False,
-                backend=False,
-                no_tui=True,
-            )
-        except KeyboardInterrupt:
-            pass
-
-        call_kwargs = mock_display_class.call_args.kwargs
+        call_kwargs = mock_tui_class.call_args.kwargs
         assert call_kwargs["log_types"] is None
-
-    @pytest.mark.unit
-    def test_watch_cmd_tui_mode(self, mocker: MockerFixture) -> None:
-        """Test watch_cmd with TUI mode (default)."""
-        from fuzzytail.cli.watch import watch_cmd
-
-        mocker.patch("fuzzytail.cli.watch.console")
-        mock_tui_class = mocker.patch("fuzzytail.ui.tui.FuzzytailApp")
-
-        mock_app = mocker.MagicMock()
-        mock_tui_class.return_value = mock_app
-
-        watch_cmd("testowner/testproject")
-
-        mock_tui_class.assert_called_once()
-        mock_app.run.assert_called_once()
-
-    @pytest.mark.unit
-    def test_watch_cmd_tui_error(self, mocker: MockerFixture) -> None:
-        """Test watch_cmd handles TUI errors."""
-        from fuzzytail.cli.watch import watch_cmd
-
-        mocker.patch("fuzzytail.cli.watch.console")
-        mock_tui_class = mocker.patch("fuzzytail.ui.tui.FuzzytailApp")
-
-        mock_app = mocker.MagicMock()
-        mock_app.run.side_effect = Exception("TUI crashed")
-        mock_tui_class.return_value = mock_app
-
-        with pytest.raises(SystemExit) as exc_info:
-            watch_cmd("testowner/testproject")
-
-        assert exc_info.value.code == 1
 
     @pytest.mark.unit
     def test_watch_cmd_copr_error(self, mocker: MockerFixture) -> None:
@@ -740,14 +699,13 @@ class TestWatchCmd:
         from fuzzytail.services.copr import CoprError
 
         mocker.patch("fuzzytail.cli.watch.console")
-        mock_display_class = mocker.patch("fuzzytail.cli.watch.LogDisplay")
-
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = CoprError("API Error")
-        mock_display_class.return_value = mock_display
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+        mock_tui = mocker.MagicMock()
+        mock_tui.run.side_effect = CoprError("API Error")
+        mock_tui_class.return_value = mock_tui
 
         with pytest.raises(SystemExit) as exc_info:
-            watch_cmd("testowner/testproject", no_tui=True)
+            watch_cmd("testowner/testproject")
 
         assert exc_info.value.code == 1
 
@@ -757,14 +715,13 @@ class TestWatchCmd:
         from fuzzytail.cli.watch import watch_cmd
 
         mocker.patch("fuzzytail.cli.watch.console")
-        mock_display_class = mocker.patch("fuzzytail.cli.watch.LogDisplay")
-
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+        mock_tui = mocker.MagicMock()
+        mock_tui.run.side_effect = KeyboardInterrupt()
+        mock_tui_class.return_value = mock_tui
 
         # Should not raise, just print message
-        watch_cmd("testowner/testproject", no_tui=True)
+        watch_cmd("testowner/testproject")
 
 
 class TestDefaultCommand:
@@ -784,14 +741,14 @@ class TestDefaultCommand:
 
     @pytest.mark.unit
     def test_default_command_with_build_id(self, mocker: MockerFixture) -> None:
-        """Test default command with specific build ID."""
+        """Test default command with specific build ID launches TUI."""
         from fuzzytail.cli.main import default_command
 
         mocker.patch("fuzzytail.cli.main.console")
         mock_copr_class = mocker.patch(
             "fuzzytail.services.copr.CoprService", autospec=True
         )
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
         mock_build = Build(
             id=12345,
@@ -807,13 +764,14 @@ class TestDefaultCommand:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display_class.return_value = mock_display
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
-        default_command("testowner/testproject", build_id=12345, no_tui=True)
+        default_command("testowner/testproject", build_id=12345)
 
         mock_copr.get_build.assert_called_once_with(12345)
-        mock_display.stream_build.assert_called_once()
+        mock_tui_class.assert_called_once()
+        mock_tui.run.assert_called_once()
 
     @pytest.mark.unit
     def test_default_command_backend_log_type(self, mocker: MockerFixture) -> None:
@@ -825,7 +783,7 @@ class TestDefaultCommand:
         mock_copr_class = mocker.patch(
             "fuzzytail.services.copr.CoprService", autospec=True
         )
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
         mock_copr = mocker.MagicMock()
         mock_copr.get_build.return_value = Build(
@@ -839,52 +797,18 @@ class TestDefaultCommand:
         mock_copr.__exit__ = mocker.MagicMock(return_value=None)
         mock_copr_class.return_value = mock_copr
 
-        mock_display = mocker.MagicMock()
-        mock_display_class.return_value = mock_display
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
 
         default_command(
             "testowner/testproject",
             build_id=12345,
             backend=True,
             builder_live=False,
-            no_tui=True,
         )
 
-        call_kwargs = mock_display_class.call_args.kwargs
+        call_kwargs = mock_tui_class.call_args.kwargs
         assert call_kwargs["log_types"] == [BuildLogType.BACKEND]
-
-    @pytest.mark.unit
-    def test_default_command_tui_mode(self, mocker: MockerFixture) -> None:
-        """Test default command with TUI mode (default)."""
-        from fuzzytail.cli.main import default_command
-
-        mocker.patch("fuzzytail.cli.main.console")
-        mock_tui_class = mocker.patch("fuzzytail.ui.tui.FuzzytailApp")
-
-        mock_app = mocker.MagicMock()
-        mock_tui_class.return_value = mock_app
-
-        default_command("testowner/testproject")
-
-        mock_tui_class.assert_called_once()
-        mock_app.run.assert_called_once()
-
-    @pytest.mark.unit
-    def test_default_command_tui_error(self, mocker: MockerFixture) -> None:
-        """Test default command handles TUI errors."""
-        from fuzzytail.cli.main import default_command
-
-        mocker.patch("fuzzytail.cli.main.console")
-        mock_tui_class = mocker.patch("fuzzytail.ui.tui.FuzzytailApp")
-
-        mock_app = mocker.MagicMock()
-        mock_app.run.side_effect = Exception("TUI crashed")
-        mock_tui_class.return_value = mock_app
-
-        with pytest.raises(SystemExit) as exc_info:
-            default_command("testowner/testproject")
-
-        assert exc_info.value.code == 1
 
     @pytest.mark.unit
     def test_default_command_watch_project(self, mocker: MockerFixture) -> None:
@@ -892,22 +816,20 @@ class TestDefaultCommand:
         from fuzzytail.cli.main import default_command
 
         mocker.patch("fuzzytail.cli.main.console")
-        mock_copr_class = mocker.patch(
-            "fuzzytail.services.copr.CoprService", autospec=True
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
+
+        mock_tui = mocker.MagicMock()
+        mock_tui_class.return_value = mock_tui
+
+        default_command("testowner/testproject")
+
+        # Should create TUI with owner/project (watch mode)
+        mock_tui_class.assert_called_once()
+        call_kwargs = mock_tui_class.call_args
+        assert call_kwargs.kwargs.get("owner") is not None or (
+            len(call_kwargs.args) >= 2 and call_kwargs.args[1] is not None
         )
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
-
-        mock_copr = mocker.MagicMock()
-        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
-        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
-        mock_copr_class.return_value = mock_copr
-
-        mock_display = mocker.MagicMock()
-        mock_display_class.return_value = mock_display
-
-        default_command("testowner/testproject", no_tui=True)
-
-        mock_display.watch_project.assert_called_once()
+        mock_tui.run.assert_called_once()
 
     @pytest.mark.unit
     def test_default_command_copr_error(self, mocker: MockerFixture) -> None:
@@ -919,7 +841,7 @@ class TestDefaultCommand:
         mock_copr_class = mocker.patch(
             "fuzzytail.services.copr.CoprService", autospec=True
         )
-        mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
         mock_copr = mocker.MagicMock()
         mock_copr.get_build.side_effect = CoprError("API Error")
@@ -928,7 +850,7 @@ class TestDefaultCommand:
         mock_copr_class.return_value = mock_copr
 
         with pytest.raises(SystemExit) as exc_info:
-            default_command("testowner/testproject", build_id=12345, no_tui=True)
+            default_command("testowner/testproject", build_id=12345)
 
         assert exc_info.value.code == 1
 
@@ -938,19 +860,11 @@ class TestDefaultCommand:
         from fuzzytail.cli.main import default_command
 
         mocker.patch("fuzzytail.cli.main.console")
-        mock_copr_class = mocker.patch(
-            "fuzzytail.services.copr.CoprService", autospec=True
-        )
-        mock_display_class = mocker.patch("fuzzytail.ui.display.LogDisplay")
+        mock_tui_class = mocker.patch("fuzzytail.ui.tui.BuildTUI")
 
-        mock_copr = mocker.MagicMock()
-        mock_copr.__enter__ = mocker.MagicMock(return_value=mock_copr)
-        mock_copr.__exit__ = mocker.MagicMock(return_value=None)
-        mock_copr_class.return_value = mock_copr
-
-        mock_display = mocker.MagicMock()
-        mock_display.watch_project.side_effect = KeyboardInterrupt()
-        mock_display_class.return_value = mock_display
+        mock_tui = mocker.MagicMock()
+        mock_tui.run.side_effect = KeyboardInterrupt()
+        mock_tui_class.return_value = mock_tui
 
         # Should not raise, just print message
-        default_command("testowner/testproject", no_tui=True)
+        default_command("testowner/testproject")

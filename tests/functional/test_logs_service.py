@@ -8,7 +8,8 @@ import pytest
 
 from fuzzytail.models import BuildLogType, LogSource
 from fuzzytail.services.copr import CoprService
-from fuzzytail.services.logs import LogStreamer, categorize_logs
+from fuzzytail.services.logs import LogStreamer
+from fuzzytail.utils import categorize_logs
 
 # Test constants
 OWNER = "r0x0d"

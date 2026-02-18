@@ -2,10 +2,9 @@
 
 import pytest
 
-from fuzzytail.models import Build, BuildLog, BuildLogType, BuildState, LogSource
+from fuzzytail.models import Build, BuildState
 from fuzzytail.ui.panels import (
     BuildPanel,
-    LogPanel,
     get_state_icon,
     get_state_style,
 )
@@ -121,56 +120,3 @@ class TestBuildPanel:
         panel = BuildPanel(build)
         rendered = panel.render()
         assert rendered is not None
-
-
-class TestLogPanel:
-    """Tests for LogPanel class."""
-
-    @pytest.fixture
-    def sample_logs(self) -> list[BuildLog]:
-        """Create sample logs for testing."""
-        return [
-            BuildLog(
-                build_id=1,
-                log_type=BuildLogType.BACKEND,
-                source=LogSource.SRPM,
-                url="http://example.com/srpm-backend.log",
-            ),
-            BuildLog(
-                build_id=1,
-                log_type=BuildLogType.BUILDER_LIVE,
-                source=LogSource.RPM,
-                chroot="fedora-43-x86_64",
-                url="http://example.com/rpm-builder-live.log",
-            ),
-        ]
-
-    @pytest.mark.unit
-    def test_create_log_panel(self, sample_logs: list[BuildLog]) -> None:
-        """Test creating a LogPanel instance."""
-        panel = LogPanel(sample_logs)
-        assert panel.logs == sample_logs
-        assert len(panel._active) == 0
-
-    @pytest.mark.unit
-    def test_set_active(self, sample_logs: list[BuildLog]) -> None:
-        """Test set_active method."""
-        panel = LogPanel(sample_logs)
-        url = sample_logs[0].url
-
-        panel.set_active(url, True)
-        assert url in panel._active
-
-        panel.set_active(url, False)
-        assert url not in panel._active
-
-    @pytest.mark.unit
-    def test_render_returns_panel(self, sample_logs: list[BuildLog]) -> None:
-        """Test that render returns a Rich Panel."""
-        from rich.console import Console
-        from rich.panel import Panel
-
-        panel = LogPanel(sample_logs)
-        console = Console()
-        rendered = panel.render(console)
-        assert isinstance(rendered, Panel)

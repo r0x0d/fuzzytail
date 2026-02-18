@@ -1,9 +1,5 @@
 """Service for interacting with COPR API."""
 
-import json
-import subprocess
-from typing import Optional
-
 import httpx
 
 from fuzzytail.models import Build, BuildChroot, BuildState
@@ -27,7 +23,7 @@ class CoprService:
             timeout: HTTP request timeout in seconds.
         """
         self._timeout = timeout
-        self._client: Optional[httpx.Client] = None
+        self._client: httpx.Client | None = None
 
     @property
     def client(self) -> httpx.Client:
@@ -114,8 +110,8 @@ class CoprService:
         self,
         owner: str,
         project: str,
-        package: Optional[str] = None,
-        status: Optional[str] = None,
+        package: str | None = None,
+        status: str | None = None,
         limit: int = 10,
     ) -> list[Build]:
         """Fetch builds for a project.
@@ -214,7 +210,7 @@ class CoprService:
         chroot: str,
         build_id: int,
         package_name: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Build the result URL for a chroot.
 
         Args:
@@ -237,7 +233,7 @@ class CoprService:
     def _parse_build(
         self,
         data: dict,
-        chroots: Optional[list[BuildChroot]] = None,
+        chroots: list[BuildChroot] | None = None,
     ) -> Build:
         """Parse raw API response into a Build object.
 
@@ -269,40 +265,3 @@ class CoprService:
             started_on=data.get("started_on"),
             ended_on=data.get("ended_on"),
         )
-
-
-def get_builds_via_cli(
-    owner: str, project: str, package: Optional[str] = None
-) -> list[dict]:
-    """Get builds using the copr CLI tool.
-
-    This is an alternative method when the API is not accessible or
-    when we need authenticated access.
-
-    Args:
-        owner: Project owner username.
-        project: Project name.
-        package: Optional package name filter.
-
-    Returns:
-        List of build data dictionaries.
-
-    Raises:
-        CoprError: If the CLI command fails.
-    """
-    cmd = ["copr-cli", "list-builds", f"{owner}/{project}", "--output-format", "json"]
-
-    if package:
-        cmd.extend(["--packagename", package])
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return json.loads(result.stdout)
-    except subprocess.CalledProcessError as e:
-        raise CoprError(f"copr-cli failed: {e.stderr}") from e
-    except json.JSONDecodeError as e:
-        raise CoprError(f"Failed to parse copr-cli output: {e}") from e
-    except FileNotFoundError:
-        raise CoprError(
-            "copr-cli not found. Install it with: dnf install copr-cli"
-        ) from None

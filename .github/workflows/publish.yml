@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "${{ matrix.python-version }}"
 
-      - name: Build wheel (${{ matrix.python-version }}) 
+      - name: Build wheel (${{ matrix.python-version }})
         run: uv build
 
       - name: Publish package distributions to PyPI

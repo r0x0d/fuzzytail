@@ -5,7 +5,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from fuzzytail.models import Build, BuildState
-from fuzzytail.services.copr import CoprError, CoprService, get_builds_via_cli
+from fuzzytail.services.copr import CoprError, CoprService
 
 
 class TestCoprService:
@@ -289,67 +289,3 @@ class TestCoprService:
 
         chroots = service._get_build_chroots(12345)
         assert chroots == []
-
-
-class TestGetBuildsViaCli:
-    """Tests for get_builds_via_cli function."""
-
-    @pytest.mark.unit
-    def test_get_builds_via_cli_success(self, mocker: MockerFixture) -> None:
-        """Test successful CLI call."""
-        mock_output = '[{"id": 12345, "state": "succeeded"}]'
-        mock_run = mocker.patch("subprocess.run")
-        mock_run.return_value = mocker.MagicMock(stdout=mock_output, returncode=0)
-
-        builds = get_builds_via_cli("testowner", "testproject")
-
-        assert len(builds) == 1
-        assert builds[0]["id"] == 12345
-
-    @pytest.mark.unit
-    def test_get_builds_via_cli_with_package(self, mocker: MockerFixture) -> None:
-        """Test CLI call with package filter."""
-        mock_output = "[]"
-        mock_run = mocker.patch("subprocess.run")
-        mock_run.return_value = mocker.MagicMock(stdout=mock_output, returncode=0)
-
-        get_builds_via_cli("testowner", "testproject", package="testpackage")
-
-        call_args = mock_run.call_args[0][0]
-        assert "--packagename" in call_args
-        assert "testpackage" in call_args
-
-    @pytest.mark.unit
-    def test_get_builds_via_cli_command_error(self, mocker: MockerFixture) -> None:
-        """Test CLI call raises CoprError on command failure."""
-        from subprocess import CalledProcessError
-
-        mock_run = mocker.patch("subprocess.run")
-        mock_run.side_effect = CalledProcessError(1, "copr-cli", stderr="Error")
-
-        with pytest.raises(CoprError) as exc_info:
-            get_builds_via_cli("testowner", "testproject")
-
-        assert "copr-cli failed" in str(exc_info.value)
-
-    @pytest.mark.unit
-    def test_get_builds_via_cli_json_error(self, mocker: MockerFixture) -> None:
-        """Test CLI call raises CoprError on invalid JSON."""
-        mock_run = mocker.patch("subprocess.run")
-        mock_run.return_value = mocker.MagicMock(stdout="invalid json", returncode=0)
-
-        with pytest.raises(CoprError) as exc_info:
-            get_builds_via_cli("testowner", "testproject")
-
-        assert "Failed to parse" in str(exc_info.value)
-
-    @pytest.mark.unit
-    def test_get_builds_via_cli_not_found(self, mocker: MockerFixture) -> None:
-        """Test CLI call raises CoprError when copr-cli is not found."""
-        mock_run = mocker.patch("subprocess.run")
-        mock_run.side_effect = FileNotFoundError()
-
-        with pytest.raises(CoprError) as exc_info:
-            get_builds_via_cli("testowner", "testproject")
-
-        assert "copr-cli not found" in str(exc_info.value)
